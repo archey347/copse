@@ -7,8 +7,8 @@ any of them anywhere on the machine — with repos nameable from anywhere
 work — setup, services, ports — is out of scope.
 
 Other tools may build on the store, so its conventions — layout, key
-normalisation, the bare-clone fixes, later the following hook — live in one
-importable module (`src/store.ts`) rather than being re-implemented by each.
+normalisation, the bare-clone fixes — live in one importable module
+(`src/store.ts`) rather than being re-implemented by each.
 
 ## Terminology
 
@@ -18,8 +18,6 @@ importable module (`src/store.ts`) rather than being re-implemented by each.
 - **repo name** — anything that picks out one repo key: a unique suffix
   (`api`, `org/api`), the full key, or a URL.
 - **worktree** — a checkout of a store repo, anywhere on disk.
-- **following** (not built) — a detached worktree tracking a ref, moved to its
-  new tip whenever the ref moves.
 
 ## Layout
 ```
@@ -48,9 +46,8 @@ Worktrees go wherever `cps add` is told to put them.
   possible. Design the *semantics* in jj's terms, since its model is a superset
   of git's (non-exclusive working copies, non-blocking conflicts, stable change
   IDs), and implement git first. Don't build the abstraction itself until there
-  is a second implementation to justify it. See `proposals/jujutsu-backend.md`
-  — jj's `jj workspace add <path>` is the same shape as a store plus worktrees
-  anywhere.
+  is a second implementation to justify it. See "git now, jj-shaped
+  semantics" below.
 
 ## Decided: store keys are normalised `host/path`
 
@@ -106,6 +103,22 @@ Moving a worktree is `git worktree move`, or a plain `mv` then
 `git worktree repair` in it. Moving the store breaks every worktree until
 `git worktree repair` runs in each.
 
+## Decided: git now, jj-shaped semantics
+
+[Jujutsu](https://github.com/jj-vcs/jj) was assessed as a backend and not
+adopted. Its model is a superset of git's for what copse needs — working copies
+aren't exclusive, conflicts don't block, changes keep their identity across
+rewrites — but git covers all of it with small workarounds, chiefly
+`git worktree add --detach` for non-exclusive checkouts. Against that, requiring
+jj means learning a new VCS before copse, colocated `.jj` + `.git` repos get
+confused by git operations behind jj's back, forge and editor tooling assumes
+git, and jj's CLI is still churning before 1.0.
+
+So copse designs its semantics so they don't depend on git's restrictions, and
+implements them on git. Designed the other way round, git's limits would be
+baked into behaviour people rely on, and a jj backend couldn't remove them.
+jj calls a working copy a `jj workspace`; copse keeps git's word, worktree.
+
 ## Current commands
 
 - `cps clone <url>` — bare-clone into the store at the URL's key, with the
@@ -145,8 +158,7 @@ worktree of that repo.
   it as `missing`; `cps rm <path>` clears it. `git gc` prunes such entries after
   `gc.worktreePruneExpire` (3 months), which also catches a worktree on a drive
   that's merely unmounted; `git worktree repair` from inside it recovers.
-- **Config in a store repo is shared** by every worktree of it — which is also
-  why `extensions.worktreeConfig` will be needed for following (see below).
+- **Config in a store repo is shared** by every worktree of it.
 
 ## Decided: the project is `copse`, the command is `cps`
 
@@ -202,15 +214,12 @@ Traps:
   one reached via a symlink won't match.
 
 Installed with `bun link`, which symlinks `~/.bun/bin/cps` to this checkout's
-`src/cli.ts` — no build step, and pulling updates it. A following hook in the
-store calling `cps` would rely on `~/.bun/bin` being on the `PATH` git hooks
-see; if that proves fragile, have copse write its own absolute path into the
-hook instead.
+`src/cli.ts` — no build step, and pulling updates it.
 
 ## Decided: building an MVP
 
-Leave out anything the MVP doesn't need. Future ideas live as proposals in
-`proposals/`.
+Leave out anything the MVP doesn't need. Future ideas go under "Ideas / not
+built yet" below.
 
 ## Decided: completion mirrors each command's grammar, not just its name
 
@@ -237,23 +246,15 @@ The zsh script is written but **untested**: no zsh on this machine.
 
 ## Ideas / not built yet
 
-- **Following** — `cps add <repo> <path> --follow <ref>`: a detached worktree
-  that a `reference-transaction` hook in the store moves whenever `<ref>`
-  moves. The one thing copse does that git can't; designed and prototyped in
-  `proposals/following.md`, which also holds its traps
-  (`extensions.worktreeConfig` breaking `core.bare`, `core.hooksPath`
-  disabling the hook). The ref followed goes in per-worktree git config
-  (`copse.follows`), since git can't infer it. With a global store the hook
-  fires for every follower of that repo on the machine, which is what's wanted.
 - **`cps adopt <path>`** — bring an existing ordinary checkout into the store:
   clone from it, point the store's `origin` at the checkout's own `origin` URL
   (otherwise `origin` is a local path), then add a worktree elsewhere, leaving
   the old checkout untouched. Converting in place — move `.git` into the store,
   re-register the directory as a worktree — works (verified on a throwaway
-  clone) but staged changes come back unstaged,
-  detached HEAD and the checkout's own linked worktrees are edge cases, and it
-  rewrites a directory someone is working in. Uncommitted work doesn't come
-  along a fresh clone either way.
+  clone) but staged changes come back unstaged, detached HEAD and the
+  checkout's own linked worktrees are edge cases, and it rewrites a directory
+  someone is working in. Uncommitted work doesn't come along a fresh clone
+  either way.
 - **`cps mv <from> <to>`**, wrapping `git worktree move`.
 - **Inferring the repo from cwd** for `cps list` or a `cps add` shorthand,
   once naming it every time chafes — without making a positional ambiguous.
